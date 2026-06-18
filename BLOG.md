@@ -260,10 +260,122 @@ Each agent gets a color-coded label:
 
 The final report is rendered inside a Rich `Panel` with full Markdown formatting — headers, bullet points, bold text all render cleanly in the terminal.
 
-### What's Next
+### First Live Run
 
-Phase 5 will add the README with architecture diagrams, setup instructions, and usage examples — making the project ready to share.
+The moment of truth — running the full system on a real query:
+
+```
+python -m src.main "What are the latest advances in quantum computing?"
+```
+
+The orchestrator created a plan, routed to the web researcher twice (it decided one round wasn't enough), then routed to the synthesizer. The final report came back with 10 key findings, source attribution, confidence levels, knowledge gaps, and recommendations — all rendered in a Rich panel with Markdown formatting.
+
+It worked on the first try. That's rare, and it's a testament to testing each layer in isolation before wiring them together.
 
 ---
 
-*Phase 5 coming up: README and polish...*
+## Phase 5: Polish and Reflection
+
+### The README
+
+A project isn't complete without documentation that lets someone else (or future-you) pick it up and run with it. The README covers:
+
+- ASCII architecture diagram showing the agent flow
+- Agent roles table
+- Step-by-step setup instructions
+- Usage examples for all three modes (argument, document, interactive)
+- Project structure map
+- Key design decisions with rationale
+
+### Challenges We Hit Along the Way
+
+**1. The DuckDuckGo rename.** The `duckduckgo-search` package was renamed to `ddgs`. The old one imported fine but silently returned empty results. We only caught this because we tested tools in isolation before integrating them — a good argument for bottom-up testing.
+
+**2. The config fail-fast.** `config.py` exits on import if `OPENAI_API_KEY` is missing. This is the right behavior at runtime, but it blocks import-level tests. We solved this by using a dummy env var (`OPENAI_API_KEY=test-key`) for structural tests. The lesson: fail-fast is great for users, but your test harness needs a way around it.
+
+**3. Routing hallucinations.** LLMs can return unexpected values even with structured output. The `route_after_orchestrator` function falls back to the synthesizer for any unrecognized agent name, ensuring the graph always terminates cleanly.
+
+**4. State append semantics.** Without `Annotated[list[str], add]`, each agent would overwrite the findings list instead of appending to it. This single annotation is what makes the collaborative accumulation of knowledge work — it's easy to miss but critical.
+
+### What I Learned
+
+1. **LangGraph and LangChain serve different purposes.** LangGraph is for orchestration (the graph, routing, state). LangChain is for the building blocks inside each agent (LLMs, tools, loaders). Trying to use one for the other's job leads to pain.
+
+2. **Structured output > free-text parsing.** Using Pydantic models for the orchestrator's decisions eliminated an entire class of bugs (malformed routing, missing fields, type mismatches).
+
+3. **Test each layer in isolation.** Tools → agents → graph → CLI. Each layer was verified before the next was built. This caught the DuckDuckGo rename at the tool level instead of during a confusing end-to-end failure.
+
+4. **Stateless tools, stateful nodes.** Keeping tools as pure functions and letting LangGraph nodes manage state keeps the architecture clean and testable.
+
+5. **Streaming beats invoke.** Using `graph.stream()` gives real-time visibility into which agent is running. `graph.invoke()` would leave the user staring at a blank terminal for 30+ seconds.
+
+---
+
+## Phase 6: From CLI to Full-Stack — Adding a Web Frontend
+
+The CLI worked great for development and testing, but a beautiful web frontend makes the project shine.
+
+### The Stack Choice: Next.js + FastAPI
+
+We went with **Next.js** (React, TypeScript, Tailwind CSS) for the frontend and **FastAPI** for the backend API. The split is intentional:
+
+- **FastAPI** is a thin layer over the existing graph — it doesn't duplicate any logic. It just exposes `graph.stream()` as a Server-Sent Events (SSE) endpoint.
+- **Next.js** provides the UI with server components, fast HMR, and Tailwind for styling.
+
+### Server-Sent Events (SSE) for Real-Time Updates
+
+The key technical decision was how to stream agent updates to the browser. Options:
+- **WebSockets** — bidirectional, but overkill (we only need server → client)
+- **Polling** — simple but laggy, no real-time feel
+- **SSE** — server → client streaming over HTTP, native browser support via `EventSource`
+
+SSE was the perfect fit. The backend wraps each `graph.stream()` step as an SSE event:
+
+```python
+async def _stream_research(query, documents):
+    for step in graph.stream(initial_state):
+        for node_name, node_state in step.items():
+            yield f"event: agent_update\ndata: {json.dumps(event_data)}\n\n"
+```
+
+The frontend reads these events with `fetch()` + `ReadableStream`, updating the UI as each agent completes its work. The user sees orchestrator routing, web researcher searching, and the synthesizer generating — all in real time.
+
+### The Frontend Design
+
+We went for a dark-themed, minimal design:
+- **Empty state** with suggestion chips — one click fills the query
+- **Step cards** that appear as each agent runs, with color-coded labels and animated indicators
+- **Markdown report** rendered in a styled panel when the synthesizer finishes
+- **File upload** for document analysis
+- **Sticky input bar** at the bottom, chat-app style
+
+Each agent gets a visual identity:
+- 🧠 Orchestrator (cyan)
+- 🔍 Web Researcher (emerald)
+- 📄 Document Analyst (amber)
+- ✨ Synthesizer (violet)
+
+### Challenge: SSE Parsing in the Browser
+
+The native `EventSource` API doesn't support POST requests or custom headers. Since our research endpoint needs a `FormData` POST (for file uploads), we had to use `fetch()` with a manual SSE parser — reading the response stream chunk by chunk, splitting on `\n\n`, and parsing `event:` / `data:` lines ourselves. More code, but full control.
+
+### The Final Architecture
+
+```
+User → Browser (Next.js on :3000)
+         → POST /api/research (FastAPI on :8000)
+              → LangGraph (graph.py)
+                   → Orchestrator (plan + route)
+                        → Web Researcher (search + findings)
+                        → Document Analyst (load + analyze)
+                        → back to Orchestrator (re-evaluate)
+                   → Synthesizer (compile report)
+              → SSE stream back to browser
+         → Rendered Markdown report
+```
+
+Four agents. Three tools. One shared state. SSE streaming from backend to frontend. A clean loop with termination guarantees. And a polished web UI that shows you what's happening every step of the way.
+
+---
+
+*Built with LangGraph + LangChain + FastAPI + Next.js + GPT-4o + a lot of deliberate architecture decisions.*
