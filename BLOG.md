@@ -202,4 +202,68 @@ All four agents are built, tested, and ready. Phase 4 will wire them together in
 
 ---
 
-*Phase 4 coming up: The graph and CLI...*
+## Phase 4: Wiring the Graph and Building the CLI
+
+This is the phase where isolated pieces become a working system.
+
+### The LangGraph Workflow (`graph.py`)
+
+The graph has a simple but powerful structure:
+
+```
+Entry → Orchestrator → [conditional routing]
+                           │
+            ┌──────────────┼──────────────┐
+            ▼              ▼              ▼
+      Web Researcher  Doc Analyst    Synthesizer → END
+            │              │
+            └──────┬───────┘
+                   ▼
+             Orchestrator (re-evaluate)
+```
+
+In code, this is built with LangGraph's `StateGraph`:
+
+```python
+graph = StateGraph(ResearchState)
+graph.add_node("orchestrator", orchestrator_node)
+graph.add_node("web_researcher", web_researcher_node)
+graph.add_node("document_analyst", document_analyst_node)
+graph.add_node("synthesizer", synthesizer_node)
+
+graph.set_entry_point("orchestrator")
+graph.add_conditional_edges("orchestrator", route_after_orchestrator, {...})
+graph.add_edge("web_researcher", "orchestrator")
+graph.add_edge("document_analyst", "orchestrator")
+graph.add_edge("synthesizer", END)
+```
+
+**The key insight:** After the web researcher or document analyst finishes, they always route back to the orchestrator — not to each other, not to the synthesizer. The orchestrator re-evaluates the state of knowledge and decides what's next. This creates a natural loop: plan → research → re-evaluate → more research or synthesize.
+
+**Routing safety:** The `route_after_orchestrator` function validates the agent name. If the orchestrator returns an unexpected value (LLM hallucination), it falls back to the synthesizer — ensuring the graph always terminates rather than crashing.
+
+### The CLI (`main.py`)
+
+We built two modes:
+1. **Argument mode**: `python -m src.main "your query here"` — single-shot research
+2. **Interactive mode**: `python -m src.main` — REPL loop where you can run multiple queries
+
+The CLI uses `graph.stream()` instead of `graph.invoke()`. Streaming gives us step-by-step visibility — we see which node is running as it happens, rather than waiting in silence for the full run to complete. Each step updates a Rich spinner and prints which agent just acted and what it found.
+
+### Rich Output (`utils/output.py`)
+
+Each agent gets a color-coded label:
+- 🔵 **Orchestrator** — cyan
+- 🟢 **Web Researcher** — green
+- 🟡 **Document Analyst** — yellow
+- 🟣 **Synthesizer** — magenta
+
+The final report is rendered inside a Rich `Panel` with full Markdown formatting — headers, bullet points, bold text all render cleanly in the terminal.
+
+### What's Next
+
+Phase 5 will add the README with architecture diagrams, setup instructions, and usage examples — making the project ready to share.
+
+---
+
+*Phase 5 coming up: README and polish...*
