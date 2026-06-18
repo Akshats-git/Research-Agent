@@ -128,4 +128,78 @@ With the tools built and tested, we're ready for the most exciting phase — **b
 
 ---
 
-*Phase 3 coming up: Building the agents...*
+## Phase 3: Building the Agents
+
+This is where the project comes alive. Each agent is a Python function (a LangGraph "node") that receives the shared state, does its work, and returns state updates.
+
+### The Orchestrator — The Brain
+
+The orchestrator is the decision-maker. It doesn't do research itself — it creates a plan and decides which specialist to call next.
+
+**Key design choice: Structured output.** Instead of parsing free-text responses, the orchestrator uses Pydantic models with LangChain's `with_structured_output()`:
+
+```python
+class ResearchPlan(BaseModel):
+    plan: str         # What to investigate
+    next_agent: str   # 'web_researcher', 'document_analyst', or 'synthesizer'
+    reasoning: str    # Why this agent should go next
+```
+
+This guarantees the orchestrator always returns valid routing decisions — no regex parsing, no "I hope the LLM formats it correctly." The LLM is constrained to output exactly these fields, and LangGraph uses `next_agent` to route to the correct node.
+
+**Safety rails:** If the iteration counter hits the max (3), the orchestrator skips LLM reasoning entirely and routes straight to the synthesizer. And if there are no user-provided documents, it hard-blocks any attempt to route to the document analyst — even if the LLM hallucinates that choice.
+
+### The Web Researcher — The Investigator
+
+This agent gets the query and plan, then performs multiple DuckDuckGo searches using the tool-calling loop pattern:
+
+```
+LLM decides search query → calls web_search tool → gets results → decides next search → ... → compiles summary
+```
+
+The agent uses LangChain's `.bind_tools()` to give the LLM access to the `web_search` tool. It loops up to 3 tool calls, letting the LLM decide what to search for and when it has enough information. After all searches, it asks the LLM for a compiled summary with source URLs.
+
+The findings are returned as a list that LangGraph **appends** to `web_findings` (thanks to the `Annotated[list[str], add]` pattern in our state definition).
+
+### The Document Analyst — The Reader
+
+Structurally similar to the web researcher, but uses the `load_document` tool instead. It iterates through user-provided file paths, loads each one, and analyzes the content in context of the research query.
+
+**Edge case handled:** If called with no documents (which shouldn't happen thanks to the orchestrator's guard, but defense in depth), it returns a clean message and routes back to the orchestrator instead of crashing.
+
+### The Synthesizer — The Writer
+
+The synthesizer is the only agent with **no tools** — it's pure LLM reasoning. It takes all `web_findings` and `doc_findings` from the shared state and produces a structured report with:
+
+- **Executive Summary** — 2-3 paragraph overview
+- **Key Findings** — numbered, with source attribution and confidence levels
+- **Conflicting Information** — contradictions between sources
+- **Knowledge Gaps** — what's still unknown
+- **Recommendations** — actionable next steps
+
+The prompt template enforces this structure, so the output is consistent across different research queries.
+
+### Pattern: The Tool-Calling Loop
+
+Both the web researcher and document analyst use the same pattern:
+
+```python
+for _ in range(max_tool_calls):
+    response = llm.invoke(messages)       # LLM decides what to do
+    messages.append(response)
+    if not response.tool_calls:           # No more tools needed? Done.
+        break
+    for tool_call in response.tool_calls: # Execute each tool call
+        result = tool.invoke(tool_call["args"])
+        messages.append(ToolMessage(...)) # Feed result back to LLM
+```
+
+This is a manual agent loop — we control exactly how many tool calls are allowed, and the LLM decides when to stop. This gives us more control than `AgentExecutor` while keeping the code transparent.
+
+### What's Next
+
+All four agents are built, tested, and ready. Phase 4 will wire them together into a LangGraph workflow and build the CLI — that's when we'll see the full system run end-to-end.
+
+---
+
+*Phase 4 coming up: The graph and CLI...*
