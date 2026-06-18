@@ -84,4 +84,48 @@ With the foundation in place — project structure, dependency management, share
 
 ---
 
-*Phase 2 coming up: Building the tools...*
+## Phase 2: Building the Tools
+
+Tools are how agents interact with the outside world. Without tools, an LLM can only reason — it can't *do* anything. We needed three:
+
+### 1. Web Search (`tools/search.py`)
+
+We wrapped DuckDuckGo as a LangChain tool using the `@tool` decorator. The function takes a query string, hits DuckDuckGo, and returns the top 5 results formatted with title, URL, and snippet.
+
+```python
+@tool
+def web_search(query: str) -> str:
+    """Search the web using DuckDuckGo and return top results."""
+    results = list(DDGS().text(query, max_results=5))
+    # ... format and return
+```
+
+**Challenge encountered:** The original `duckduckgo-search` package has been renamed to `ddgs`. Our first test returned zero results with a deprecation warning. We caught this during testing and switched to the new `ddgs` package — a good reminder to always test tools in isolation before wiring them into agents.
+
+### 2. Document Loader (`tools/doc_loader.py`)
+
+This tool handles PDF and text files. It uses `pypdf` for PDFs and plain file reads for `.txt`, `.md`, and `.csv` files. After loading, it chunks the content using LangChain's `RecursiveCharacterTextSplitter` (2000 chars per chunk, 200 overlap) so large documents don't overwhelm the LLM's context window.
+
+The tool validates file existence and type before processing, returning clear error messages for missing files or unsupported formats.
+
+### 3. Note Taker (`tools/note_taker.py`)
+
+This is the simplest but most architecturally interesting tool. It's intentionally **stateless** — it just validates and echoes the finding back. The actual state update (appending to `web_findings` or `doc_findings`) is handled by the agent node function in LangGraph.
+
+Why this design? LangChain tools shouldn't know about LangGraph state. Keeping tools as pure functions and letting the graph layer manage state gives us clean separation. The tool is the LLM's way of saying "I found something important" — the node function is what actually records it.
+
+### Design Principle: Tools are Stateless, Nodes Manage State
+
+This is a key architectural decision. In LangGraph:
+- **Tools** = pure functions the LLM can call (search, load, validate)
+- **Nodes** = graph functions that run tools, interpret results, and update shared state
+
+This keeps the codebase testable (tools can be tested in isolation) and flexible (same tools can be reused across different agents).
+
+### What's Next
+
+With the tools built and tested, we're ready for the most exciting phase — **building the agents** in Phase 3. Each agent will get a system prompt, a set of tools, and a node function that wires it into the LangGraph state.
+
+---
+
+*Phase 3 coming up: Building the agents...*
