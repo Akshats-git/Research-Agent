@@ -72,12 +72,3 @@ body {
 .report-content a { color: #818cf8; text-decoration: underline; }
 .report-content hr { border-color: #1e1e2a; margin: 1.5rem 0; }
 .report-content blockquote { border-left: 3px solid #6366f1; padding-left: 1rem; margin: 1rem 0; color: #a1a1aa; font-style: italic; }
-
-/* PDF export overrides — white background with dark text for readability */
-.pdf-export { background: #ffffff !important; color: #1a1a1a !important; }
-.pdf-export h1, .pdf-export h2, .pdf-export h3 { color: #111111 !important; }
-.pdf-export p, .pdf-export li { color: #333333 !important; }
-.pdf-export strong { color: #111111 !important; }
-.pdf-export a { color: #4f46e5 !important; }
-.pdf-export hr { border-color: #d4d4d8 !important; }
-.pdf-export blockquote { border-left-color: #4f46e5 !important; color: #555555 !important; }
