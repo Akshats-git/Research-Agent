@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -30,7 +30,9 @@ export default function ResearchApp() {
   const [report, setReport] = useState("");
   const [isResearching, setIsResearching] = useState(false);
   const [error, setError] = useState("");
+  const [isDownloading, setIsDownloading] = useState(false);
   const stepsEndRef = useRef<HTMLDivElement>(null);
+  const reportRef = useRef<HTMLDivElement>(null);
   const stepCounter = useRef(0);
 
   const scrollToBottom = () => {
@@ -134,6 +136,32 @@ export default function ResearchApp() {
     }
   };
 
+  const downloadPdf = useCallback(async () => {
+    if (!reportRef.current || isDownloading) return;
+    setIsDownloading(true);
+    try {
+      const html2pdf = (await import("html2pdf.js")).default;
+      const opt = {
+        margin: [10, 10, 10, 10],
+        filename: `research-report-${new Date().toISOString().slice(0, 10)}.pdf`,
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: "#ffffff",
+          onclone: (clonedDoc: Document) => {
+            const el = clonedDoc.querySelector(".report-content");
+            if (el) el.classList.add("pdf-export");
+          },
+        },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" as const },
+      };
+      await html2pdf().set(opt).from(reportRef.current).save();
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [isDownloading]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -208,8 +236,27 @@ export default function ResearchApp() {
                 <div className="px-6 py-4 border-b border-card-border bg-accent/5 flex items-center gap-2">
                   <span className="text-lg">📋</span>
                   <h2 className="text-lg font-semibold text-foreground">Research Report</h2>
+                  <button
+                    onClick={downloadPdf}
+                    disabled={isDownloading}
+                    className="ml-auto flex items-center gap-2 px-4 py-1.5 rounded-lg border border-card-border bg-background text-sm text-muted hover:text-foreground hover:border-accent/50 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isDownloading ? (
+                      <>
+                        <span className="w-3.5 h-3.5 border-2 border-muted/30 border-t-muted rounded-full animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M8 1v9m0 0L5 7m3 3l3-3M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        Download PDF
+                      </>
+                    )}
+                  </button>
                 </div>
-                <div className="px-6 py-6 report-content">
+                <div ref={reportRef} className="px-6 py-6 report-content">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{report}</ReactMarkdown>
                 </div>
               </div>
