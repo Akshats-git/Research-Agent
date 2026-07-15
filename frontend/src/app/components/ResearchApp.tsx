@@ -1,30 +1,18 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef } from "react";
 import { useReactToPrint } from "react-to-print";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-interface AgentStep {
-  id: number;
-  agent: string;
-  status: "running" | "done";
-  plan?: string;
-  next_agent?: string;
-  reasoning?: string;
-  findings_count?: number;
-  findings?: string[];
-  report?: string;
-}
-
-const PIPELINE_STAGES = ["orchestrator", "web_researcher", "document_analyst", "synthesizer"] as const;
-
-const STAGE_META: Record<string, { label: string; description: string }> = {
-  orchestrator: { label: "Orchestrator", description: "Planning research strategy" },
-  web_researcher: { label: "Web Researcher", description: "Searching the web for findings" },
-  document_analyst: { label: "Document Analyst", description: "Analyzing uploaded documents" },
-  synthesizer: { label: "Synthesizer", description: "Generating final report" },
-};
+import {
+  AgentStep,
+  initialSteps,
+  STAGE_META,
+  applyAgentUpdate,
+  describeStep,
+  settleSteps,
+} from "./pipeline";
 
 function IconBeaker({ className = "" }: { className?: string }) {
   return (
@@ -106,6 +94,14 @@ function IconCheck({ className = "" }: { className?: string }) {
   );
 }
 
+function IconX({ className = "" }: { className?: string }) {
+  return (
+    <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 6L6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
 const STAGE_ICONS: Record<string, (props: { className?: string }) => React.ReactElement> = {
   orchestrator: IconOrchestrator,
   web_researcher: IconGlobe,
@@ -121,42 +117,17 @@ export default function ResearchApp() {
   const [isResearching, setIsResearching] = useState(false);
   const [error, setError] = useState("");
   const reportRef = useRef<HTMLDivElement>(null);
-  const stepCounter = useRef(0);
 
-  const stageStates = useMemo(() => {
-    const states: Record<string, "pending" | "running" | "done"> = {};
-    for (const stage of PIPELINE_STAGES) {
-      states[stage] = "pending";
-    }
-    if (steps.length === 0) return states;
-
-    // Mark any stage that has ever completed as "done"
-    for (const step of steps) {
-      if (step.status === "done") {
-        states[step.agent] = "done";
-      }
-    }
-
-    // The latest running step overrides to "running"
-    const latest = steps[steps.length - 1];
-    if (latest.status === "running") {
-      states[latest.agent] = "running";
-    }
-
-    return states;
-  }, [steps]);
-
-
-  const latestStep = steps.length > 0 ? steps[steps.length - 1] : null;
+  const settle = (status: "done" | "failed") =>
+    setSteps((prev) => settleSteps(prev, status));
 
   const startResearch = async () => {
     if (!query.trim() || isResearching) return;
 
     setIsResearching(true);
-    setSteps([]);
+    setSteps(initialSteps());
     setReport("");
     setError("");
-    stepCounter.current = 0;
 
     const formData = new FormData();
     formData.append("query", query.trim());
@@ -201,6 +172,7 @@ export default function ResearchApp() {
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "An error occurred");
+      settle("failed");
     } finally {
       setIsResearching(false);
     }
@@ -208,39 +180,16 @@ export default function ResearchApp() {
 
   const handleEvent = (type: string, data: Record<string, unknown>) => {
     if (type === "agent_update") {
-      const agent = data.agent as string;
+      setSteps((prev) => applyAgentUpdate(prev, data));
 
-      setSteps((prev) => {
-        const updated = prev.map((s) =>
-          s.status === "running" ? { ...s, status: "done" as const } : s
-        );
-
-        stepCounter.current += 1;
-        const newStep: AgentStep = {
-          id: stepCounter.current,
-          agent,
-          status: "running",
-          plan: data.plan as string | undefined,
-          next_agent: data.next_agent as string | undefined,
-          reasoning: data.reasoning as string | undefined,
-          findings_count: data.findings_count as number | undefined,
-          findings: data.findings as string[] | undefined,
-          report: data.report as string | undefined,
-        };
-
-        if (agent === "synthesizer" && data.report) {
-          setReport(data.report as string);
-          newStep.status = "done";
-        }
-
-        return [...updated, newStep];
-      });
+      if (data.agent === "synthesizer" && data.report) {
+        setReport(data.report as string);
+      }
     } else if (type === "error") {
       setError(data.message as string);
+      settle("failed");
     } else if (type === "complete") {
-      setSteps((prev) =>
-        prev.map((s) => (s.status === "running" ? { ...s, status: "done" } : s))
-      );
+      settle("done");
     }
   };
 
@@ -320,120 +269,84 @@ export default function ResearchApp() {
             </div>
           )}
 
-          {/* Pipeline */}
-          {(isResearching || steps.length > 0) && (
-            <div className="mb-8 animate-fade-in">
-              {/* Pipeline stepper */}
-              <div className="relative">
-                <div className="flex items-center justify-between">
-                  {PIPELINE_STAGES.map((stage, i) => {
-                    const state = stageStates[stage];
-                    const Icon = STAGE_ICONS[stage];
-                    const meta = STAGE_META[stage];
+          {/* Pipeline — a forward-only chain of the agents the graph actually ran */}
+          {steps.length > 0 && (
+            <ol className="mb-8">
+              {steps.map((step, i) => {
+                const Icon = STAGE_ICONS[step.agent] ?? IconOrchestrator;
+                const meta = STAGE_META[step.agent];
+                const isLast = i === steps.length - 1;
 
-                    return (
-                      <div key={stage} className="flex items-center flex-1 last:flex-none">
-                        {/* Stage node */}
-                        <div className="flex flex-col items-center gap-2">
-                          <div className="relative">
-                            {state === "running" && (
-                              <div className="absolute -inset-1.5 rounded-full border-2 border-transparent border-t-accent animate-spin" />
-                            )}
-                            <div
-                              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 ${
-                                state === "done"
-                                  ? "bg-success/15 text-success ring-2 ring-success/30"
-                                  : state === "running"
-                                  ? "bg-accent/15 text-accent ring-2 ring-accent/30"
-                                  : "bg-card text-muted ring-1 ring-card-border"
-                              }`}
-                            >
-                              {state === "done" ? <IconCheck /> : <Icon />}
-                            </div>
-                          </div>
-                          <span
-                            className={`text-xs font-medium transition-colors duration-300 whitespace-nowrap ${
-                              state === "done"
-                                ? "text-success"
-                                : state === "running"
-                                ? "text-accent-light"
-                                : "text-muted"
-                            }`}
-                          >
-                            {meta.label}
-                          </span>
+                return (
+                  <li key={i} className="relative flex gap-4 pb-5 last:pb-0 animate-fade-in">
+                    {/* Connector down to the next agent */}
+                    {!isLast && (
+                      <div
+                        className={`absolute left-5 top-11 bottom-1 w-0.5 rounded-full transition-colors duration-500 ${
+                          step.status === "done"
+                            ? "bg-success/40"
+                            : step.status === "failed"
+                            ? "bg-red-500/40"
+                            : "bg-accent/30 pipeline-pulse"
+                        }`}
+                      />
+                    )}
+
+                    {/* Agent node */}
+                    <div className="relative shrink-0">
+                      {step.status === "running" && (
+                        <div className="absolute -inset-1.5 rounded-full border-2 border-transparent border-t-accent animate-spin" />
+                      )}
+                      <div
+                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 ${
+                          step.status === "done"
+                            ? "bg-success/15 text-success ring-2 ring-success/30"
+                            : step.status === "failed"
+                            ? "bg-red-500/15 text-red-400 ring-2 ring-red-500/30"
+                            : "bg-accent/15 text-accent ring-2 ring-accent/30"
+                        }`}
+                      >
+                        <Icon />
+                      </div>
+                      {step.status !== "running" && (
+                        <div
+                          className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center ring-2 ring-background ${
+                            step.status === "done" ? "bg-success text-background" : "bg-red-500 text-white"
+                          }`}
+                        >
+                          {step.status === "done" ? (
+                            <IconCheck className="w-2.5 h-2.5" />
+                          ) : (
+                            <IconX className="w-2.5 h-2.5" />
+                          )}
                         </div>
+                      )}
+                    </div>
 
-                        {/* Connector line */}
-                        {i < PIPELINE_STAGES.length - 1 && (
-                          <div className="flex-1 mx-3 mt-[-20px]">
-                            <div
-                              className={`h-0.5 rounded-full transition-all duration-500 ${
-                                state === "done"
-                                  ? "bg-success/40"
-                                  : state === "running"
-                                  ? "bg-accent/30 pipeline-pulse"
-                                  : "bg-card-border"
-                              }`}
-                            />
-                          </div>
+                    {/* Detail */}
+                    <div className="min-w-0 flex-1 pt-1">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`font-medium text-sm ${
+                            step.status === "done"
+                              ? "text-success"
+                              : step.status === "failed"
+                              ? "text-red-400"
+                              : "text-accent-light"
+                          }`}
+                        >
+                          {meta?.label ?? step.agent}
+                        </span>
+                        {step.status === "running" && (
+                          <span className="text-xs text-muted">running…</span>
                         )}
                       </div>
-                    );
-                  })}
-                </div>
-
-              </div>
-
-              <div className="mt-6">
-
-              {/* Detail panel */}
-              {latestStep && (
-                <div className="rounded-xl border border-card-border bg-card/50 px-5 py-4 animate-fade-in">
-                  <div className="flex items-center gap-2 mb-2">
-                    {(() => {
-                      const Icon = STAGE_ICONS[latestStep.agent];
-                      return Icon ? (
-                        <Icon className={latestStep.status === "running" ? "text-accent" : "text-success"} />
-                      ) : null;
-                    })()}
-                    <span className={`font-medium text-sm ${
-                      latestStep.status === "running" ? "text-accent-light" : "text-success"
-                    }`}>
-                      {STAGE_META[latestStep.agent]?.label || latestStep.agent}
-                    </span>
-                    {latestStep.status === "running" && (
-                      <span className="ml-auto w-4 h-4 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
-                    )}
-                    {latestStep.status === "done" && (
-                      <IconCheck className="ml-auto text-success" />
-                    )}
-                  </div>
-                  <p className="text-sm text-muted">
-                    {latestStep.agent === "orchestrator" && latestStep.plan && latestStep.plan}
-                    {latestStep.agent === "orchestrator" && !latestStep.plan && STAGE_META.orchestrator.description}
-                    {latestStep.agent === "web_researcher" && latestStep.status === "done" &&
-                      `Gathered ${latestStep.findings_count || 0} finding(s) from web search`}
-                    {latestStep.agent === "web_researcher" && latestStep.status === "running" &&
-                      STAGE_META.web_researcher.description}
-                    {latestStep.agent === "document_analyst" && latestStep.status === "done" &&
-                      `Analyzed documents — ${latestStep.findings_count || 0} finding(s)`}
-                    {latestStep.agent === "document_analyst" && latestStep.status === "running" &&
-                      STAGE_META.document_analyst.description}
-                    {latestStep.agent === "synthesizer" && latestStep.status === "done" &&
-                      "Final report generated"}
-                    {latestStep.agent === "synthesizer" && latestStep.status === "running" &&
-                      STAGE_META.synthesizer.description}
-                  </p>
-                  {latestStep.agent === "orchestrator" && latestStep.next_agent && (
-                    <p className="text-xs text-accent-light mt-1">
-                      Next: {STAGE_META[latestStep.next_agent]?.label || latestStep.next_agent}
-                    </p>
-                  )}
-                </div>
-              )}
-              </div>
-            </div>
+                      <p className="text-sm text-muted mt-0.5">{describeStep(step)}</p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
           )}
 
           {/* Report */}
