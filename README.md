@@ -99,18 +99,18 @@ MAX_ITERATIONS = 3
 ## Project layout
 
 ```
-server.py                   FastAPI backend, streams agent updates over SSE
-src/
-  main.py                   CLI entry point
-  config.py                 Model settings and LLM setup
-  state.py                  Shared graph state
-  graph.py                  Wires the agents into the LangGraph workflow
-  agents/                   orchestrator, web_researcher, document_analyst, synthesizer
-  tools/                    Web search and document loading
-frontend/src/app/
-  components/
-    ResearchApp.tsx         Research UI and SSE client
-    pipeline.ts             Builds the agent chain from the event stream
+├── server.py                 FastAPI backend, streams updates over SSE
+├── src/
+│   ├── main.py               CLI entry point
+│   ├── config.py             Model settings and LLM setup
+│   ├── state.py              Shared graph state
+│   ├── graph.py              Wires the agents into the LangGraph workflow
+│   ├── agents/               One module per agent
+│   └── tools/                Web search and document loading
+└── frontend/src/app/
+    └── components/
+        ├── ResearchApp.tsx   Research UI and SSE client
+        └── pipeline.ts       Builds the agent chain from the event stream
 ```
 
 ## Built with
