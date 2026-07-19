@@ -1,3 +1,5 @@
+"""Command-line entry point for running the research graph without the web UI."""
+
 import argparse
 import sys
 
@@ -8,27 +10,18 @@ from src.graph import build_graph
 from src.utils.output import (
     print_header,
     print_agent_status,
-    print_step,
     print_report,
     print_error,
-    print_findings_summary,
 )
 
 console = Console()
 
 
-def run_research(query: str, documents: list[str] | None = None):
-    print_header()
-    console.print(f"  [bold]Query:[/bold] {query}")
-    if documents:
-        console.print(f"  [bold]Documents:[/bold] {', '.join(documents)}")
-    console.print()
-
-    graph = build_graph()
-
-    initial_state = {
+def _initial_state(query: str, documents: list[str] | None) -> dict:
+    return {
         "query": query,
         "plan": "",
+        "reasoning": "",
         "web_findings": [],
         "doc_findings": [],
         "documents": documents or [],
@@ -38,39 +31,45 @@ def run_research(query: str, documents: list[str] | None = None):
         "iteration": 0,
     }
 
-    step_count = 0
+
+def _narrate_step(node_name: str, node_state: dict) -> None:
+    """Print a one-line status for whichever node just finished."""
+    if node_name == "orchestrator":
+        next_agent = node_state.get("current_agent", "")
+        print_agent_status("orchestrator", f"Routing to [bold]{next_agent}[/bold]")
+        plan = node_state.get("plan", "")
+        if plan:
+            preview = plan if len(plan) <= 150 else plan[:150] + "..."
+            console.print(f"    [dim]{preview}[/dim]")
+    elif node_name == "web_researcher":
+        count = len(node_state.get("web_findings", []))
+        print_agent_status("web_researcher", f"Found {count} finding(s)")
+    elif node_name == "document_analyst":
+        count = len(node_state.get("doc_findings", []))
+        print_agent_status("document_analyst", f"Analyzed, {count} finding(s)")
+    elif node_name == "synthesizer":
+        print_agent_status("synthesizer", "Generating final report...")
+
+
+def run_research(query: str, documents: list[str] | None = None) -> None:
+    print_header()
+    console.print(f"  [bold]Query:[/bold] {query}")
+    if documents:
+        console.print(f"  [bold]Documents:[/bold] {', '.join(documents)}")
+    console.print()
+
+    graph = build_graph()
     final_state = None
+    step_count = 0
 
     try:
         with Status("[bold blue]Researching...[/bold blue]", console=console, spinner="dots") as status:
-            for step in graph.stream(initial_state):
+            for step in graph.stream(_initial_state(query, documents)):
                 step_count += 1
-
                 for node_name, node_state in step.items():
-                    current_agent = node_state.get("current_agent", "")
-
                     status.update(f"[bold blue]Step {step_count}: {node_name} working...[/bold blue]")
-
-                    if node_name == "orchestrator":
-                        plan = node_state.get("plan", "")
-                        next_agent = node_state.get("current_agent", "")
-                        print_agent_status("orchestrator", f"Routing to [bold]{next_agent}[/bold]")
-                        if plan:
-                            console.print(f"    [dim]{plan[:150]}{'...' if len(plan) > 150 else ''}[/dim]")
-
-                    elif node_name == "web_researcher":
-                        findings_count = len(node_state.get("web_findings", []))
-                        print_agent_status("web_researcher", f"Found {findings_count} finding(s)")
-
-                    elif node_name == "document_analyst":
-                        findings_count = len(node_state.get("doc_findings", []))
-                        print_agent_status("document_analyst", f"Analyzed, {findings_count} finding(s)")
-
-                    elif node_name == "synthesizer":
-                        print_agent_status("synthesizer", "Generating final report...")
-
+                    _narrate_step(node_name, node_state)
                     final_state = node_state
-
     except KeyboardInterrupt:
         console.print("\n\n  [yellow]Research interrupted by user.[/yellow]\n")
         sys.exit(0)
@@ -84,7 +83,7 @@ def run_research(query: str, documents: list[str] | None = None):
         print_error("No report was generated. The research may have ended prematurely.")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Multi-Agent Research Assistant",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -94,22 +93,23 @@ def main():
     )
     parser.add_argument("query", nargs="?", help="Research query")
     parser.add_argument("--files", nargs="+", help="Document file paths for analysis", default=[])
-
     args = parser.parse_args()
 
     if args.query:
         run_research(args.query, args.files)
-    else:
-        print_header()
-        console.print("  Enter your research query (or [bold]Ctrl+C[/bold] to exit):\n")
-        try:
-            while True:
-                query = console.input("  [bold bright_blue]>[/bold bright_blue] ").strip()
-                if query:
-                    run_research(query)
-                    console.print("\n  Enter another query (or [bold]Ctrl+C[/bold] to exit):\n")
-        except (KeyboardInterrupt, EOFError):
-            console.print("\n\n  [dim]Goodbye![/dim]\n")
+        return
+
+    # No query given: drop into an interactive prompt loop.
+    print_header()
+    console.print("  Enter your research query (or [bold]Ctrl+C[/bold] to exit):\n")
+    try:
+        while True:
+            query = console.input("  [bold bright_blue]>[/bold bright_blue] ").strip()
+            if query:
+                run_research(query)
+                console.print("\n  Enter another query (or [bold]Ctrl+C[/bold] to exit):\n")
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n\n  [dim]Goodbye![/dim]\n")
 
 
 if __name__ == "__main__":

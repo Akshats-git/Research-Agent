@@ -1,3 +1,9 @@
+"""Synthesizer agent: turns the collected findings into the final report.
+
+This is the only agent with no tools — pure LLM reasoning over the findings the
+other agents accumulated in the shared state.
+"""
+
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from src.config import get_llm
@@ -37,38 +43,37 @@ Actionable next steps or conclusions based on the findings.
 - Write in clear, professional prose"""
 
 
+def _format_findings(web_findings: list[str], doc_findings: list[str]) -> str:
+    """Render the accumulated findings into a labelled block for the prompt."""
+    sections = []
+    if web_findings:
+        sections.append("## Web Research Findings\n")
+        sections += [f"### Web Finding {i}\n{f}" for i, f in enumerate(web_findings, 1)]
+    if doc_findings:
+        sections.append("## Document Analysis Findings\n")
+        sections += [f"### Document Finding {i}\n{f}" for i, f in enumerate(doc_findings, 1)]
+
+    if not sections:
+        return "No findings were gathered. Provide a brief report acknowledging this."
+    return "\n\n".join(sections)
+
+
 def synthesizer_node(state: ResearchState) -> dict:
     llm = get_llm()
+    findings_text = _format_findings(
+        state.get("web_findings", []),
+        state.get("doc_findings", []),
+    )
 
-    web_findings = state.get("web_findings", [])
-    doc_findings = state.get("doc_findings", [])
-
-    findings_text = ""
-
-    if web_findings:
-        findings_text += "## Web Research Findings\n\n"
-        for i, f in enumerate(web_findings, 1):
-            findings_text += f"### Web Finding {i}\n{f}\n\n"
-
-    if doc_findings:
-        findings_text += "## Document Analysis Findings\n\n"
-        for i, f in enumerate(doc_findings, 1):
-            findings_text += f"### Document Finding {i}\n{f}\n\n"
-
-    if not findings_text:
-        findings_text = "No findings were gathered. Provide a brief report acknowledging this."
-
-    messages = [
+    response = llm.invoke([
         SystemMessage(content=SYNTHESIZER_PROMPT),
         HumanMessage(content=(
             f"Research query: {state['query']}\n\n"
             f"Research plan: {state.get('plan', 'N/A')}\n\n"
-            f"{findings_text}\n"
+            f"{findings_text}\n\n"
             "Synthesize all findings into a final research report."
         )),
-    ]
-
-    response = llm.invoke(messages)
+    ])
 
     return {
         "final_report": response.content,

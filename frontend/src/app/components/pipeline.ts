@@ -1,3 +1,12 @@
+/**
+ * Reconstructs the agent pipeline from the backend's event stream.
+ *
+ * The graph loops back through the orchestrator, so the chain is built forward
+ * from the events as they arrive rather than mapped onto a fixed list of stages
+ * — a repeated orchestrator becomes another link instead of rewinding to the
+ * start. This module is pure state logic; the rendering lives in ResearchApp.
+ */
+
 export interface AgentStep {
   agent: string;
   status: "running" | "done" | "failed";

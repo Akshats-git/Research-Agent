@@ -1,3 +1,9 @@
+"""Terminal rendering helpers for the CLI (``src/main.py``).
+
+These wrap `rich` so the command-line run has the same colour-coded, per-agent
+narration the web UI shows, plus a Markdown-rendered final report.
+"""
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
@@ -5,6 +11,7 @@ from rich.text import Text
 
 console = Console()
 
+# Each agent has a colour and a display label so its output is easy to scan.
 AGENT_STYLES = {
     "orchestrator": ("bold cyan", "Orchestrator"),
     "web_researcher": ("bold green", "Web Researcher"),
@@ -13,7 +20,7 @@ AGENT_STYLES = {
 }
 
 
-def print_header():
+def print_header() -> None:
     console.print()
     console.print(
         Panel(
@@ -26,21 +33,12 @@ def print_header():
     console.print()
 
 
-def print_agent_status(agent_name: str, message: str):
+def print_agent_status(agent_name: str, message: str) -> None:
     style, label = AGENT_STYLES.get(agent_name, ("bold white", agent_name))
     console.print(f"  [{style}][{label}][/{style}] {message}")
 
 
-def print_step(step_num: int, state: dict):
-    agent = state.get("current_agent", "unknown")
-    style, label = AGENT_STYLES.get(agent, ("bold white", agent))
-    console.print(f"\n  Step {step_num}: [{style}]{label}[/{style}] is up next")
-
-    if "plan" in state and state["plan"]:
-        console.print(f"  Plan: [dim]{state['plan'][:120]}...[/dim]" if len(state.get("plan", "")) > 120 else f"  Plan: [dim]{state.get('plan', '')}[/dim]")
-
-
-def print_report(report: str):
+def print_report(report: str) -> None:
     console.print()
     console.print(
         Panel(
@@ -53,9 +51,5 @@ def print_report(report: str):
     console.print()
 
 
-def print_error(message: str):
+def print_error(message: str) -> None:
     console.print(f"\n  [bold red]Error:[/bold red] {message}\n")
-
-
-def print_findings_summary(web_count: int, doc_count: int):
-    console.print(f"\n  [dim]Findings collected: {web_count} web, {doc_count} document[/dim]")

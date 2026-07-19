@@ -1,3 +1,5 @@
+"""Central configuration: environment loading and the shared LLM factory."""
+
 import os
 import sys
 
@@ -10,6 +12,7 @@ console = Console()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+# Fail fast with a friendly message rather than a stack trace mid-run.
 if not OPENAI_API_KEY:
     console.print(
         "[bold red]Error:[/bold red] OPENAI_API_KEY not found. "
@@ -18,10 +21,11 @@ if not OPENAI_API_KEY:
     sys.exit(1)
 
 MODEL_NAME = "gpt-4o"
-MAX_ITERATIONS = 3
+MAX_ITERATIONS = 3  # Orchestrator loops before the synthesizer is forced to run.
 
 
 def get_llm():
+    """Return a fresh chat model. Imported lazily so module imports stay cheap."""
     from langchain_openai import ChatOpenAI
 
     return ChatOpenAI(model=MODEL_NAME, temperature=0.1, api_key=OPENAI_API_KEY)

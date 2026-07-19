@@ -1,5 +1,23 @@
+"""FastAPI backend.
+
+Exposes the research graph and the conversational layer over a single
+Server-Sent Events endpoint (``/api/chat``). Each turn is first classified — a
+new report, a follow-up answer, or an edit to the existing report — and only the
+research path runs the full multi-agent pipeline.
+
+SSE event types emitted to the browser:
+    intent        {action}                     router's decision for this turn
+    start         {query}                       a research run is beginning
+    agent_update  {step, agent, ...}            one graph node finished
+    message       {content}                     conversational answer (no report)
+    report        {report}                      a revised report
+    complete      {}                            the turn is done
+    error         {message}                     something failed
+"""
+
 import json
 import asyncio
+import tempfile
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, UploadFile, File, Form
@@ -18,17 +36,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Compiled once at startup and reused across requests.
 graph = build_graph()
 
 
 def _event(event_type: str, data: dict) -> str:
+    """Format a single Server-Sent Event frame."""
     return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
 
+def _agent_update(step: int, node_name: str, node_state: dict) -> dict:
+    """Pick out the fields the UI cares about for a finished graph node."""
+    data = {"step": step, "agent": node_name}
+    if node_name == "orchestrator":
+        data["plan"] = node_state.get("plan", "")
+        data["next_agent"] = node_state.get("current_agent", "")
+        data["reasoning"] = node_state.get("reasoning", "")
+    elif node_name == "web_researcher":
+        findings = node_state.get("web_findings", [])
+        data["findings_count"] = len(findings)
+        data["findings"] = findings
+    elif node_name == "document_analyst":
+        findings = node_state.get("doc_findings", [])
+        data["findings_count"] = len(findings)
+        data["findings"] = findings
+    elif node_name == "synthesizer":
+        data["report"] = node_state.get("final_report", "")
+    return data
+
+
 async def _stream_research(query: str, documents: list[str]) -> AsyncGenerator[str, None]:
+    """Run the graph and stream one ``agent_update`` per node as it completes."""
     initial_state = {
         "query": query,
         "plan": "",
+        "reasoning": "",
         "web_findings": [],
         "doc_findings": [],
         "documents": documents,
@@ -45,24 +87,8 @@ async def _stream_research(query: str, documents: list[str]) -> AsyncGenerator[s
         for step in graph.stream(initial_state):
             step_count += 1
             for node_name, node_state in step.items():
-                event_data = {"step": step_count, "agent": node_name}
-
-                if node_name == "orchestrator":
-                    event_data["plan"] = node_state.get("plan", "")
-                    event_data["next_agent"] = node_state.get("current_agent", "")
-                    event_data["reasoning"] = node_state.get("reasoning", "")
-                elif node_name == "web_researcher":
-                    event_data["findings_count"] = len(node_state.get("web_findings", []))
-                    event_data["findings"] = node_state.get("web_findings", [])
-                elif node_name == "document_analyst":
-                    event_data["findings_count"] = len(node_state.get("doc_findings", []))
-                    event_data["findings"] = node_state.get("doc_findings", [])
-                elif node_name == "synthesizer":
-                    event_data["report"] = node_state.get("final_report", "")
-
-                yield _event("agent_update", event_data)
-                await asyncio.sleep(0)
-
+                yield _event("agent_update", _agent_update(step_count, node_name, node_state))
+                await asyncio.sleep(0)  # yield control so the frame flushes promptly
         yield _event("complete", {"step": step_count})
     except Exception as e:
         yield _event("error", {"message": str(e)})
@@ -86,8 +112,8 @@ async def _stream_chat(
     yield _event("intent", {"action": action})
 
     if action == "research":
-        async for ev in _stream_research(message, documents):
-            yield ev
+        async for frame in _stream_research(message, documents):
+            yield frame
         return
 
     try:
@@ -103,8 +129,7 @@ async def _stream_chat(
 
 
 async def _save_uploads(files: list[UploadFile] | None) -> list[str]:
-    import tempfile
-
+    """Persist uploaded files to temp paths the document loader can read."""
     doc_paths: list[str] = []
     if files:
         for f in files:
@@ -132,17 +157,6 @@ async def chat(
 
     return StreamingResponse(
         _stream_chat(message, parsed_history, current_report, doc_paths),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-@app.post("/api/research")
-async def research(query: str = Form(...), files: list[UploadFile] | None = File(None)):
-    doc_paths = await _save_uploads(files)
-
-    return StreamingResponse(
-        _stream_research(query, doc_paths),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

@@ -1,3 +1,5 @@
+"""Orchestrator agent: plans the research and routes to the right specialist."""
+
 from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage, HumanMessage
 
@@ -6,6 +8,8 @@ from src.state import ResearchState
 
 
 class ResearchPlan(BaseModel):
+    """Structured routing decision — the orchestrator never replies in free text."""
+
     plan: str = Field(description="A concise research plan outlining what to investigate")
     next_agent: str = Field(
         description="The next agent to call: 'web_researcher', 'document_analyst', or 'synthesizer'"
@@ -31,47 +35,44 @@ You have these specialist agents available:
 
 
 def orchestrator_node(state: ResearchState) -> dict:
-    llm = get_llm().with_structured_output(ResearchPlan)
     iteration = state.get("iteration", 0)
     has_documents = bool(state.get("documents"))
     web_findings = state.get("web_findings", [])
     doc_findings = state.get("doc_findings", [])
 
+    # Hard stop: once we've looped enough, synthesize with whatever we have.
     if iteration >= MAX_ITERATIONS:
         return {"current_agent": "synthesizer", "iteration": iteration}
 
-    context_parts = [f"Research query: {state['query']}"]
-
+    # Assemble everything the orchestrator needs to make its next decision.
+    context = [f"Research query: {state['query']}"]
     if state.get("plan"):
-        context_parts.append(f"Current plan: {state['plan']}")
-
+        context.append(f"Current plan: {state['plan']}")
     if web_findings:
-        context_parts.append(f"Web findings so far ({len(web_findings)} items):\n" + "\n---\n".join(web_findings))
-
+        context.append(f"Web findings so far ({len(web_findings)} items):\n" + "\n---\n".join(web_findings))
     if doc_findings:
-        context_parts.append(f"Document findings so far ({len(doc_findings)} items):\n" + "\n---\n".join(doc_findings))
+        context.append(f"Document findings so far ({len(doc_findings)} items):\n" + "\n---\n".join(doc_findings))
+    context.append(
+        f"User provided documents: {state['documents']}" if has_documents
+        else "No documents provided by user."
+    )
+    context.append(f"Current iteration: {iteration + 1}/{MAX_ITERATIONS}")
 
-    if has_documents:
-        context_parts.append(f"User provided documents: {state['documents']}")
-    else:
-        context_parts.append("No documents provided by user.")
-
-    context_parts.append(f"Current iteration: {iteration + 1}/{MAX_ITERATIONS}")
-
-    messages = [
+    llm = get_llm().with_structured_output(ResearchPlan)
+    result = llm.invoke([
         SystemMessage(content=ORCHESTRATOR_PROMPT),
-        HumanMessage(content="\n\n".join(context_parts)),
-    ]
+        HumanMessage(content="\n\n".join(context)),
+    ])
 
-    result = llm.invoke(messages)
-
-    if not has_documents and result.next_agent == "document_analyst":
-        result.next_agent = "web_researcher" if not web_findings else "synthesizer"
+    # Guard against the model routing to the analyst when there's nothing to analyse.
+    next_agent = result.next_agent
+    if not has_documents and next_agent == "document_analyst":
+        next_agent = "web_researcher" if not web_findings else "synthesizer"
 
     return {
         "plan": result.plan,
-        "current_agent": result.next_agent,
+        "current_agent": next_agent,
         "reasoning": result.reasoning,
         "iteration": iteration + 1,
-        "messages": [{"role": "orchestrator", "content": f"Plan: {result.plan} | Next: {result.next_agent}"}],
+        "messages": [{"role": "orchestrator", "content": f"Plan: {result.plan} | Next: {next_agent}"}],
     }

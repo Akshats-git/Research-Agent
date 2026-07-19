@@ -1,4 +1,6 @@
-from langchain_core.messages import SystemMessage, HumanMessage
+"""Document analyst agent: reads uploaded files and extracts relevant content."""
+
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 
 from src.config import get_llm
 from src.state import ResearchState
@@ -22,6 +24,7 @@ Be precise and cite specific parts of the documents when possible."""
 def document_analyst_node(state: ResearchState) -> dict:
     documents = state.get("documents", [])
 
+    # The orchestrator guards against this, but stay defensive: no files, no work.
     if not documents:
         return {
             "doc_findings": ["No documents were provided for analysis."],
@@ -41,6 +44,7 @@ def document_analyst_node(state: ResearchState) -> dict:
         )),
     ]
 
+    # Allow one load per document plus a couple of reasoning turns.
     for _ in range(len(documents) + 2):
         response = llm.invoke(messages)
         messages.append(response)
@@ -48,17 +52,16 @@ def document_analyst_node(state: ResearchState) -> dict:
         if not response.tool_calls:
             break
 
-        for tool_call in response.tool_calls:
-            result = load_document.invoke(tool_call["args"])
-            from langchain_core.messages import ToolMessage
-            messages.append(ToolMessage(content=result, tool_call_id=tool_call["id"]))
+        for call in response.tool_calls:
+            result = load_document.invoke(call["args"])
+            messages.append(ToolMessage(content=result, tool_call_id=call["id"]))
 
-    final_response = llm.invoke(messages + [
+    summary = llm.invoke(messages + [
         HumanMessage(content="Now compile your document analysis into a clear summary of findings relevant to the research query.")
     ])
 
     return {
-        "doc_findings": [final_response.content],
+        "doc_findings": [summary.content],
         "current_agent": "orchestrator",
         "messages": [{"role": "document_analyst", "content": f"Analyzed {len(documents)} document(s)"}],
     }
