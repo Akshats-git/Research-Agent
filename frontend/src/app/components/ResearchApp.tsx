@@ -124,7 +124,7 @@ function Pipeline({ steps }: { steps: AgentStep[] }) {
 
 /**
  * A rendered report with its own print handler. It's a component so each report
- * in the history owns a stable `useReactToPrint` hook — the hook count must not
+ * in the history owns a stable `useReactToPrint` hook. The hook count must not
  * change as turns are added.
  */
 function ReportCard({
@@ -188,7 +188,7 @@ function EmptyState({ onPick }: { onPick: (q: string) => void }) {
       <h2 className="text-2xl font-semibold text-foreground mb-2">What would you like to research?</h2>
       <p className="text-muted text-center max-w-md">
         Ask any research question. Multiple AI agents will collaborate to search the web, analyze
-        documents, and synthesize a comprehensive report — then answer follow-ups and refine it.
+        documents, and synthesize a comprehensive report. Then it answers follow-ups and refines it.
       </p>
       <div className="flex gap-2 mt-8 flex-wrap justify-center">
         {SUGGESTIONS.map((s) => (

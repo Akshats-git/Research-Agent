@@ -1,7 +1,7 @@
 """Conversational layer in front of the research pipeline.
 
 The pipeline itself only knows how to produce a fresh report. But a chat turn
-isn't always a research request — the user may just be acknowledging, asking a
+isn't always a research request. The user may just be acknowledging, asking a
 follow-up question about findings already gathered, or asking for edits to the
 report. This module decides which of those a message is (``classify_intent``)
 and handles the two non-pipeline cases (``answer_question``, ``revise_report``).
@@ -47,9 +47,9 @@ class Intent(BaseModel):
 ROUTER_PROMPT = """You classify the user's LATEST message in a research chat into exactly ONE action.
 
 Actions:
-- "research": The user wants NEW research — a report on a topic not yet investigated, or a substantially new question that needs fresh web/document research. Examples: "Are SWE jobs dead?", "Research the impact of AI on hiring", "Now look into remote-work trends".
-- "revise": The user wants to CHANGE the report that already exists — shorten/expand, add or drop a section, change tone or format, fix something. Examples: "make it shorter", "add a section on salaries", "remove the recommendations", "rewrite the executive summary".
-- "answer": The user is acknowledging, chatting, or asking a question that can be answered from what's already been gathered — NO new research, NO report produced. Examples: "ok", "thanks", "what did you mean by point 3?", "which sources did you use?", "summarize that in one sentence".
+- "research": The user wants NEW research. This means a report on a topic not yet investigated, or a substantially new question that needs fresh web or document research. Examples: "Are SWE jobs dead?", "Research the impact of AI on hiring", "Now look into remote-work trends".
+- "revise": The user wants to CHANGE the report that already exists. For example shorten or expand it, add or drop a section, change tone or format, or fix something. Examples: "make it shorter", "add a section on salaries", "remove the recommendations", "rewrite the executive summary".
+- "answer": The user is acknowledging, chatting, or asking a question that can be answered from what has already been gathered. This produces NO new research and NO report. Examples: "ok", "thanks", "what did you mean by point 3?", "which sources did you use?", "summarize that in one sentence".
 
 Rules:
 - Short acknowledgements or reactions ("ok", "thanks", "got it", "cool", "nice") are ALWAYS "answer". NEVER treat them as a research topic.
@@ -77,7 +77,7 @@ def classify_intent(message: str, history: list[Message], has_report: bool) -> s
 
 ANSWER_PROMPT = """You are a helpful research assistant continuing a conversation.
 
-Answer the user's latest message directly and concisely, using the conversation and the current report (if any) as context. Do NOT produce a full formal report — this is a chat reply.
+Answer the user's latest message directly and concisely, using the conversation and the current report (if any) as context. Do NOT produce a full formal report. This is a chat reply.
 
 If the user is merely acknowledging (e.g. "ok", "thanks"), respond briefly and offer next steps: they can ask a follow-up, request changes to the report, or start new research. Use light markdown only when it genuinely helps."""
 
@@ -99,7 +99,7 @@ def answer_question(message: str, history: list[Message], current_report: str) -
 
 REVISE_PROMPT = """You revise an existing research report based on the user's request.
 
-Return the COMPLETE updated report in markdown — the full document, not a diff, not just the changed section, and with NO commentary before or after it. Preserve everything the user did not ask to change, and keep the report's professional structure."""
+Return the COMPLETE updated report in markdown. Give the full document, not a diff and not just the changed section, with NO commentary before or after it. Preserve everything the user did not ask to change, and keep the report's professional structure."""
 
 
 def revise_report(message: str, history: list[Message], current_report: str) -> str:

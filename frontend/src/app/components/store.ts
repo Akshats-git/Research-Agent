@@ -17,7 +17,7 @@ import { AgentStep, settleSteps } from "./pipeline";
 
 /**
  * One chat turn: the user's message plus whatever the assistant produced for it.
- * A turn's `kind` is decided by the backend router — a `research` turn runs the
+ * A turn's `kind` is decided by the backend router. A `research` turn runs the
  * agent pipeline into a `report`, an `answer` turn is a conversational `answer`,
  * and a `revise` turn replaces the `report` with an edited version.
  */
@@ -33,7 +33,7 @@ export interface Turn {
   createdAt: number;
 }
 
-/** A saved chat session — a titled thread of turns, shown as one sidebar entry. */
+/** A saved chat session: a titled thread of turns, shown as one sidebar entry. */
 export interface Chat {
   id: string;
   title: string;
@@ -69,15 +69,15 @@ function readStorage(): StoreState {
     const parsed = JSON.parse(raw) as StoreState;
     const chats = (parsed.chats ?? []).map((chat) => ({
       ...chat,
-      // A run that was mid-stream when the page unloaded can't resume — its live
-      // connection is gone — so surface it as interrupted rather than "running".
+      // A run that was mid-stream when the page unloaded can't resume. Its live
+      // connection is gone, so surface it as interrupted rather than "running".
       turns: (chat.turns ?? []).map((t) =>
         t.status === "running"
           ? {
               ...t,
               status: "failed" as const,
               steps: settleSteps(t.steps, "failed"),
-              error: t.error || "Interrupted — the page was reloaded mid-research.",
+              error: t.error || "Interrupted. The page was reloaded mid-research.",
             }
           : t
       ),
@@ -120,7 +120,7 @@ export function useChatStore(): StoreState {
   return useSyncExternalStore(subscribe, () => store, () => EMPTY_STATE);
 }
 
-/** The most recent non-archived chat, or null — the fallback when focus is lost. */
+/** The most recent non-archived chat, or null. Used as the fallback when focus is lost. */
 function firstOpenChatId(chats: Chat[]): string | null {
   const open = chats.filter((c) => !c.archived).sort((a, b) => b.updatedAt - a.updatedAt);
   return open[0]?.id ?? null;
@@ -171,7 +171,7 @@ export function toggleArchived(id: string) {
 }
 
 export function newTurn(query: string): Turn {
-  // Steps stay empty until the router says this is a research turn — otherwise
+  // Steps stay empty until the router says this is a research turn. Otherwise
   // an answer or a report edit would render a bogus pipeline.
   return { id: uid(), query, steps: [], answer: "", report: "", error: "", status: "running", createdAt: Date.now() };
 }

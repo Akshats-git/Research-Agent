@@ -2,9 +2,9 @@
  * Reconstructs the agent pipeline from the backend's event stream.
  *
  * The graph loops back through the orchestrator, so the chain is built forward
- * from the events as they arrive rather than mapped onto a fixed list of stages
- * — a repeated orchestrator becomes another link instead of rewinding to the
- * start. This module is pure state logic; the rendering lives in ResearchApp.
+ * from the events as they arrive rather than mapped onto a fixed list of stages.
+ * A repeated orchestrator becomes another link instead of rewinding to the
+ * start. This module is pure state logic. The rendering lives in ResearchApp.
  */
 
 export interface AgentStep {
@@ -33,7 +33,7 @@ export const initialSteps = (): AgentStep[] => [{ agent: "orchestrator", status:
 /**
  * Which node the graph runs after `step`, mirroring the edges in src/graph.py.
  * The graph loops back through the orchestrator, so the chain is built forward
- * from the event stream rather than mapped onto a fixed list of stages — a
+ * from the event stream rather than mapped onto a fixed list of stages. A
  * repeated orchestrator becomes another link instead of rewinding to stage one.
  */
 function successorOf(step: AgentStep): string | null {
@@ -53,7 +53,7 @@ export function describeStep(step: AgentStep): string {
     case "web_researcher":
       return `Gathered ${step.findings_count ?? 0} finding(s) from web search`;
     case "document_analyst":
-      return `Analyzed documents — ${step.findings_count ?? 0} finding(s)`;
+      return `Analyzed documents, ${step.findings_count ?? 0} finding(s)`;
     case "synthesizer":
       return "Final report generated";
     default:
@@ -64,7 +64,7 @@ export function describeStep(step: AgentStep): string {
 /**
  * Fold an `agent_update` into the chain. The graph streams a node's update once
  * that node has finished, so the event completes a step rather than starting
- * one; the agent it hands off to is appended as the newly running step.
+ * one. The agent it hands off to is appended as the newly running step.
  */
 export function applyAgentUpdate(prev: AgentStep[], data: Record<string, unknown>): AgentStep[] {
   const agent = data.agent as string;
@@ -80,9 +80,9 @@ export function applyAgentUpdate(prev: AgentStep[], data: Record<string, unknown
     report: data.report as string | undefined,
   };
 
-  // Only the tail is ever a prediction; everything before it is confirmed by an
+  // Only the tail is ever a prediction. Everything before it is confirmed by an
   // event. If the prediction was wrong, drop it rather than reporting work that
-  // never ran — and append the real agent instead of rewinding to it.
+  // never ran, and append the real agent instead of rewinding to it.
   const last = prev[prev.length - 1];
   const confirmed = last?.status === "running" ? prev.slice(0, -1) : prev;
   const next = [...confirmed, completed];

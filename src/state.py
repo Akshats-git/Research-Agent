@@ -6,8 +6,8 @@ from typing_extensions import TypedDict
 class ResearchState(TypedDict):
     """Shared state passed between every node in the research graph.
 
-    Fields annotated with ``add`` are *accumulated* across nodes — LangGraph
-    appends each node's contribution instead of overwriting — so findings and
+    Fields annotated with ``add`` are accumulated across nodes. LangGraph
+    appends each node's contribution instead of overwriting it, so findings and
     messages build up over the course of a run. The plain fields are simply
     replaced by whichever node writes them last.
     """

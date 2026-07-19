@@ -1,8 +1,8 @@
 """FastAPI backend.
 
 Exposes the research graph and the conversational layer over a single
-Server-Sent Events endpoint (``/api/chat``). Each turn is first classified — a
-new report, a follow-up answer, or an edit to the existing report — and only the
+Server-Sent Events endpoint (``/api/chat``). Each turn is first classified as a
+new report, a follow-up answer, or an edit to the existing report. Only the
 research path runs the full multi-agent pipeline.
 
 SSE event types emitted to the browser:

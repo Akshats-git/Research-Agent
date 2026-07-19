@@ -14,7 +14,7 @@ WEB_RESEARCHER_PROMPT = """You are a web research specialist. Your job is to sea
 ## Instructions
 1. Based on the research plan and query, perform targeted web searches.
 2. You may call the web_search tool MULTIPLE times with different queries to get comprehensive results.
-3. For each search, evaluate the results critically — look for credible sources and consistent information.
+3. For each search, evaluate the results critically. Look for credible sources and consistent information.
 4. After searching, compile your findings into a clear summary that includes:
    - Key facts discovered
    - Source attribution (which URLs provided which information)
@@ -31,7 +31,7 @@ def web_researcher_node(state: ResearchState) -> dict:
         SystemMessage(content=WEB_RESEARCHER_PROMPT),
         HumanMessage(content=(
             f"Research query: {state['query']}\n\n"
-            f"Research plan: {state.get('plan', 'No plan yet — research the query broadly.')}\n\n"
+            f"Research plan: {state.get('plan', 'No plan yet. Research the query broadly.')}\n\n"
             f"Previous web findings: {len(state.get('web_findings', []))} item(s) already collected.\n"
             "Search the web and gather new findings."
         )),

@@ -1,7 +1,7 @@
 """Synthesizer agent: turns the collected findings into the final report.
 
-This is the only agent with no tools — pure LLM reasoning over the findings the
-other agents accumulated in the shared state.
+This is the only agent with no tools. It is pure LLM reasoning over the findings
+the other agents accumulated in the shared state.
 """
 
 from langchain_core.messages import SystemMessage, HumanMessage

@@ -8,7 +8,7 @@ from src.state import ResearchState
 
 
 class ResearchPlan(BaseModel):
-    """Structured routing decision — the orchestrator never replies in free text."""
+    """Structured routing decision. The orchestrator never replies in free text."""
 
     plan: str = Field(description="A concise research plan outlining what to investigate")
     next_agent: str = Field(
@@ -31,7 +31,7 @@ You have these specialist agents available:
 4. Call the synthesizer when:
    - You have sufficient findings from web research (and document analysis if applicable)
    - OR the iteration limit is approaching
-5. Be efficient — don't repeat searches that have already been done."""
+5. Be efficient. Don't repeat searches that have already been done."""
 
 
 def orchestrator_node(state: ResearchState) -> dict:
