@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from src.graph import build_graph
+from src.conversation import classify_intent, answer_question, revise_report
 
 app = FastAPI(title="Multi-Agent Research Assistant")
 
@@ -67,12 +68,44 @@ async def _stream_research(query: str, documents: list[str]) -> AsyncGenerator[s
         yield _event("error", {"message": str(e)})
 
 
-@app.post("/api/research")
-async def research(query: str = Form(...), files: list[UploadFile] | None = File(None)):
-    import tempfile
-    import os
+async def _stream_chat(
+    message: str,
+    history: list[dict],
+    current_report: str,
+    documents: list[str],
+) -> AsyncGenerator[str, None]:
+    """Route a chat turn: fresh research, a conversational answer, or a report edit."""
+    has_report = bool(current_report)
 
-    doc_paths = []
+    try:
+        action = await asyncio.to_thread(classify_intent, message, history, has_report)
+    except Exception as e:
+        yield _event("error", {"message": f"Could not understand the request: {e}"})
+        return
+
+    yield _event("intent", {"action": action})
+
+    if action == "research":
+        async for ev in _stream_research(message, documents):
+            yield ev
+        return
+
+    try:
+        if action == "revise":
+            report = await asyncio.to_thread(revise_report, message, history, current_report)
+            yield _event("report", {"report": report})
+        else:  # "answer"
+            reply = await asyncio.to_thread(answer_question, message, history, current_report)
+            yield _event("message", {"content": reply})
+        yield _event("complete", {})
+    except Exception as e:
+        yield _event("error", {"message": str(e)})
+
+
+async def _save_uploads(files: list[UploadFile] | None) -> list[str]:
+    import tempfile
+
+    doc_paths: list[str] = []
     if files:
         for f in files:
             if f.filename and f.size:
@@ -80,6 +113,33 @@ async def research(query: str = Form(...), files: list[UploadFile] | None = File
                 tmp.write(await f.read())
                 tmp.close()
                 doc_paths.append(tmp.name)
+    return doc_paths
+
+
+@app.post("/api/chat")
+async def chat(
+    message: str = Form(...),
+    history: str = Form("[]"),
+    current_report: str = Form(""),
+    files: list[UploadFile] | None = File(None),
+):
+    try:
+        parsed_history = json.loads(history) if history else []
+    except json.JSONDecodeError:
+        parsed_history = []
+
+    doc_paths = await _save_uploads(files)
+
+    return StreamingResponse(
+        _stream_chat(message, parsed_history, current_report, doc_paths),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/api/research")
+async def research(query: str = Form(...), files: list[UploadFile] | None = File(None)):
+    doc_paths = await _save_uploads(files)
 
     return StreamingResponse(
         _stream_research(query, doc_paths),
