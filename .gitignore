@@ -1,11 +1,16 @@
+# Python
 __pycache__/
 *.py[cod]
+*.egg
 *.egg-info/
-dist/
+.eggs/
 build/
-.env
+dist/
 .venv/
 venv/
-*.egg
-.eggs/
+
+# Secrets
+.env
+
+# Personal notes
 BLOG.md

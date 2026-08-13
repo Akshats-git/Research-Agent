@@ -1,4 +1,4 @@
-import ResearchApp from "./components/ResearchApp";
+import ResearchApp from "@/components/ResearchApp";
 
 export default function Home() {
   return (
